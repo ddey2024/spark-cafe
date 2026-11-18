@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -31,8 +31,10 @@ h1{font-size:22px;margin:0;letter-spacing:-.01em}
 .stat{border-top:3px solid var(--accent)}
 .card{border-left:4px solid var(--accent)}
 .ro #bNew,.ro [data-edit]{display:none}
+.done{opacity:.6}
+.done .name{text-decoration:line-through}
 .tabs{max-width:1000px;margin:0 auto;display:flex;gap:6px;padding:12px 16px 0}
-.tab{border:0;background:transparent;color:var(--mute);padding:9px 18px;border-radius:10px;font:inherit;font-family:Oswald,"Arial Narrow",system-ui,sans-serif;font-weight:600;letter-spacing:.05em;text-transform:uppercase;cursor:pointer}
+.tab{border:0;background:transparent;color:var(--mute);padding:9px 14px;border-radius:10px;font:inherit;font-family:Oswald,"Arial Narrow",system-ui,sans-serif;font-weight:600;letter-spacing:.05em;text-transform:uppercase;cursor:pointer}
 .tab.on{background:var(--brand);color:var(--on-brand)}
 .filters.inv{grid-template-columns:2fr 1fr auto}
 @media(max-width:640px){.filters.inv{grid-template-columns:1fr 1fr}.filters.inv input{grid-column:1/-1}}
@@ -95,7 +97,7 @@ th{color:var(--mute);font-size:11px;text-transform:uppercase;letter-spacing:.05e
   </div>
   <div class="row"><button class="btn ghost" id="bRep">Report</button><button class="btn ghost" id="bOut">Sign out</button><button class="btn accent" id="bNew">+ New order</button></div>
 </div></div>
-<div class="tabs"><button class="tab on" data-tab="orders">Orders</button><button class="tab" data-tab="inv">Inventory</button></div>
+<div class="tabs"><button class="tab on" data-tab="orders">Orders</button><button class="tab" data-tab="inv">Inventory</button><button class="tab" data-tab="buy">To buy</button></div>
 <div class="wrap" id="pOrders">
   <div class="sub" id="status" style="margin:4px 0 14px">Loading orders…</div>
   <div class="stats" id="stats"></div>
@@ -113,6 +115,13 @@ th{color:var(--mute);font-size:11px;text-transform:uppercase;letter-spacing:.05e
   <div class="filters inv"><input id="iq" placeholder="Search items…"><select id="iCat"><option value="">All categories</option></select><button class="btn primary" id="iNew">+ Add item</button></div>
   <div id="invList"></div>
 </div>
+<div class="wrap" id="pBuy" style="display:none">
+  <div class="sub" id="buyStatus" style="margin:4px 0 14px">Loading shopping list…</div>
+  <div class="stats" id="buyStats"></div>
+  <div class="filters inv"><input id="bq" placeholder="Search list…"><select id="bFilt"><option value="open">To buy</option><option value="done">Bought</option><option value="all">All</option></select><button class="btn primary" id="bNewItem">+ Add item</button></div>
+  <div id="buyList"></div>
+  <div style="text-align:center;margin-top:10px"><button class="btn sm" id="bClear">Clear bought items</button></div>
+</div>
 
 <div class="foot2">Spark Café · +1 416 407 2271 / +1 613 400 4297</div>
 
@@ -122,6 +131,18 @@ th{color:var(--mute);font-size:11px;text-transform:uppercase;letter-spacing:.05e
   <div id="lform"><div class="grid"><div class="full"><label>Email</label><input type="email" id="lEmail" autocomplete="username"></div><div class="full"><label>Password</label><input type="password" id="lPass" autocomplete="current-password"></div></div>
   <div class="foot"><button class="btn primary" id="bLogin" style="width:100%">Sign in</button></div></div>
   <div class="warn" id="lerr" style="margin-top:12px;display:none"></div>
+</div></div>
+
+<div class="ov" id="bfrm"><div class="modal">
+  <h2 id="byTitle">Add item to buy</h2>
+  <div class="grid">
+    <div class="full"><label>Item *</label><input id="byName" autocomplete="off" placeholder="e.g. Onions"></div>
+    <div><label>Quantity</label><input type="number" id="byQty" min="0" step="any" inputmode="decimal" placeholder="1"></div>
+    <div><label>Unit</label><select id="byUnit"><option>pcs</option><option>kg</option><option>g</option><option>lb</option><option>L</option><option>mL</option><option>packs</option><option>boxes</option><option>trays</option></select></div>
+    <div class="full"><label>Where to buy</label><input id="byStore" autocomplete="off" placeholder="Costco, Indian store, Walmart…"></div>
+    <div class="full"><label>Notes</label><textarea id="byNote" placeholder="Brand, size, urgent…"></textarea></div>
+  </div>
+  <div class="foot"><button class="btn danger" id="byDel" style="display:none">Delete</button><span style="flex:1"></span><button class="btn" id="byCancel">Cancel</button><button class="btn primary" id="bySave">Save item</button></div>
 </div></div>
 
 <div class="ov" id="ifrm"><div class="modal">
@@ -280,7 +301,7 @@ function setStatus(x){$("status").textContent=x}
 function showLogin(msg){$("login").classList.add("on");var e=$("lerr");e.textContent=msg||"";e.style.display=msg?"block":"none"}
 function load(){
   if(!sb)return;
-  loadInv();
+  loadInv();loadBuy();
   sb.from("orders").select("*").order("delivery_date",{ascending:true}).order("delivery_time",{ascending:true}).then(function(r){
     loaded=true;
     if(r.error){setStatus("Couldn\u2019t load orders: "+r.error.message);render();return}
@@ -293,10 +314,10 @@ function later(){clearTimeout(t);t=setTimeout(load,250)}
 function enter(session){
   email=session.user.email||"";
   $("login").classList.remove("on");setStatus("Loading orders\u2026");load();
-  if(!chan){chan=sb.channel("orders-live").on("postgres_changes",{event:"*",schema:"public",table:"orders"},later).on("postgres_changes",{event:"*",schema:"public",table:"inventory"},later).subscribe()}
+  if(!chan){chan=sb.channel("orders-live").on("postgres_changes",{event:"*",schema:"public",table:"orders"},later).on("postgres_changes",{event:"*",schema:"public",table:"inventory"},later).on("postgres_changes",{event:"*",schema:"public",table:"shopping_items"},later).subscribe()}
 }
 function leave(){
-  orders=[];loaded=false;inv=[];render();renderInv();setStatus("Signed out");
+  orders=[];loaded=false;inv=[];buy=[];render();renderInv();renderBuy();setStatus("Signed out");
   if(chan){sb.removeChannel(chan);chan=null}
   showLogin("");
 }
@@ -368,7 +389,7 @@ function adjInv(id,d){
   sb.from("inventory").update({quantity:n,updated_at:new Date().toISOString()}).eq("id",id).then(function(r){if(r.error)alert("Could not update: "+r.error.message);else loadInv()});
 }
 function showTab(n){
-  $("pOrders").style.display=n==="orders"?"":"none";$("pInv").style.display=n==="inv"?"":"none";
+  $("pOrders").style.display=n==="orders"?"":"none";$("pInv").style.display=n==="inv"?"":"none";$("pBuy").style.display=n==="buy"?"":"none";
   $("bRep").style.display=$("bNew").style.display=n==="orders"?"":"none";
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.classList.toggle("on",b.dataset.tab===n)});
 }
@@ -381,8 +402,72 @@ $("invList").onclick=function(e){
   if(d.adj){var p=d.adj.split("|");adjInv(p[0],parseFloat(p[1]))}
   else if(d.iedit){var x=inv.filter(function(i){return i.id===d.iedit})[0];if(x)openInv(x)}
 };
+
+var buy=[],buyId=null;
+function loadBuy(){
+  sb.from("shopping_items").select("*").order("created_at",{ascending:true}).then(function(r){
+    if(r.error){buy=[];$("buyStatus").textContent="Couldn\u2019t load the list: "+r.error.message+" (run supabase-add-shopping-list.sql in Supabase first)";renderBuy();return}
+    buy=r.data.map(function(x){return {id:x.id,name:x.name,qty:x.quantity==null?null:Number(x.quantity),unit:x.unit||"",store:x.store||"",notes:x.notes||"",bought:!!x.bought}});
+    $("buyStatus").textContent="Synced \u00b7 "+buy.filter(function(x){return !x.bought}).length+" item(s) left to buy";
+    renderBuy();
+  });
+}
+function renderBuy(){
+  var open=buy.filter(function(x){return !x.bought}).length,done=buy.length-open;
+  $("buyStats").innerHTML='<div class="stat"><b>'+open+'</b><span>To buy</span></div><div class="stat"><b>'+done+'</b><span>Bought</span></div>';
+  var q=$("bq").value.toLowerCase(),f=$("bFilt").value;
+  var list=buy.filter(function(x){
+    if(f==="open"&&x.bought)return false;if(f==="done"&&!x.bought)return false;
+    return !q||(x.name+" "+x.store+" "+x.notes).toLowerCase().indexOf(q)>=0}).sort(function(a,b){
+    if(a.bought!==b.bought)return a.bought?1:-1;
+    return (a.store||"~").toLowerCase().localeCompare((b.store||"~").toLowerCase())||a.name.toLowerCase().localeCompare(b.name.toLowerCase())});
+  if(!list.length){$("buyList").innerHTML='<div class="empty">'+(buy.length?"Nothing here.":"Your shopping list is empty. Tap \u201c+ Add item\u201d.")+'</div>';return}
+  $("buyList").innerHTML=list.map(function(x){
+    return '<div class="card'+(x.bought?' done':'')+'"><div class="time"><div style="font-size:11px;opacity:.85">'+esc(x.unit)+'</div>'+(x.qty==null?"\u2014":esc(fq(x.qty)))+'</div><div><div class="name">'+esc(x.name)+'</div>'
+    +(x.store?'<div style="margin-top:4px"><span class="tag t-One-time">'+esc(x.store)+'</span></div>':'')
+    +(x.notes?'<div class="meta" style="margin-top:6px">'+esc(x.notes)+'</div>':'')+'</div>'
+    +'<div class="acts row"><button class="btn sm'+(x.bought?'':' primary')+'" data-tick="'+esc(x.id)+'">'+(x.bought?'Undo':'\u2713 Bought')+'</button><button class="btn sm" data-bedit="'+esc(x.id)+'">Edit</button></div></div>'}).join("");
+}
+function openBuy(x){
+  buyId=x?x.id:null;$("byTitle").textContent=x?"Edit item":"Add item to buy";
+  $("byName").value=x?x.name:"";$("byQty").value=x&&x.qty!=null?x.qty:"";$("byUnit").value=x&&x.unit?x.unit:"pcs";
+  $("byStore").value=x?x.store:"";$("byNote").value=x?x.notes:"";
+  $("byDel").style.display=x?"inline-block":"none";$("bfrm").classList.add("on");
+}
+function saveBuy(){
+  var name=$("byName").value.trim(),qr=$("byQty").value.trim(),qty=qr===""?null:parseFloat(qr);
+  if(!name){alert("Please enter the item name.");return}
+  if(qr!==""&&(isNaN(qty)||qty<0)){alert("Please enter a valid quantity.");return}
+  var payload={name:name,quantity:qty,unit:$("byUnit").value,store:$("byStore").value.trim(),notes:$("byNote").value.trim(),updated_at:new Date().toISOString()};
+  var btn=$("bySave");btn.disabled=true;
+  var p=buyId?sb.from("shopping_items").update(payload).eq("id",buyId):sb.from("shopping_items").insert(payload);
+  p.then(function(r){btn.disabled=false;if(r.error){alert("Could not save: "+r.error.message);return}$("bfrm").classList.remove("on");loadBuy()},function(){btn.disabled=false;alert("Could not save. Check your internet connection.")});
+}
+function delBuy(){
+  if(!buyId||!confirm("Delete this item?"))return;
+  sb.from("shopping_items").delete().eq("id",buyId).then(function(r){if(r.error){alert("Could not delete: "+r.error.message);return}$("bfrm").classList.remove("on");loadBuy()});
+}
+function tickBuy(id){
+  var x=buy.filter(function(i){return i.id===id})[0];if(!x)return;
+  var now=!x.bought;
+  sb.from("shopping_items").update({bought:now,bought_at:now?new Date().toISOString():null,updated_at:new Date().toISOString()}).eq("id",id).then(function(r){if(r.error)alert("Could not update: "+r.error.message);else loadBuy()});
+}
+function clearBought(){
+  if(!buy.some(function(x){return x.bought})){alert("No bought items to clear.");return}
+  if(!confirm("Delete all items marked as bought?"))return;
+  sb.from("shopping_items").delete().eq("bought",true).then(function(r){if(r.error)alert("Could not clear: "+r.error.message);else loadBuy()});
+}
+$("bq").oninput=renderBuy;$("bFilt").onchange=renderBuy;
+$("bNewItem").onclick=function(){openBuy(null)};$("byCancel").onclick=function(){$("bfrm").classList.remove("on")};
+$("bySave").onclick=saveBuy;$("byDel").onclick=delBuy;$("bClear").onclick=clearBought;
+$("buyList").onclick=function(e){
+  var d=e.target.dataset||{};
+  if(d.tick)tickBuy(d.tick);
+  else if(d.bedit){var x=buy.filter(function(i){return i.id===d.bedit})[0];if(x)openBuy(x)}
+};
 render();
 renderInv();
+renderBuy();
 var C=window.SPARK_CONFIG||{};
 if(!C.url||!C.key||C.url.indexOf("YOUR_")===0||!window.supabase){
   $("lform").style.display="none";
